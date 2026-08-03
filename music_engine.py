@@ -1,3 +1,4 @@
+import math
 import base64
 from midiutil import MIDIFile
 
@@ -60,30 +61,36 @@ def generate_midi(exercise_name, pattern_str, settings):
         roots = roots_down + roots_down[-2::-1]
     else: roots = roots_up
 
-    time = 0
-    for beat in range(4):
-        mf.addNote(1, channel_drums, woodblock, time+beat, 0.5, metronome_vol)
-    time += 4
-
+    # ==========================
+    # 1. GENERAR PISTA MELÓDICA
+    # ==========================
+    time = 4.0 # Dejamos 4 tiempos al inicio (Count-in)
+    
     for i, root in enumerate(roots):
         scale = build_major_scale(root)
         for idx, (degree, length, accidental) in enumerate(pattern_notes, start=1):
             note_num = scale[degree-1] + accidental
             mf.addNote(0, 0, note_num, time, length, notes_vol)
-            for b in range(int(length)):
-                mf.addNote(1, channel_drums, woodblock, time+b, 0.5, metronome_vol)
             time += length
 
         if i < len(roots)-1:
             next_root = roots[i+1]
             mf.addNote(0, 0, next_root, time, bridge, notes_vol)
-            for b in range(bridge): mf.addNote(1, channel_drums, woodblock, time+b, 0.5, metronome_vol)
             time += bridge
 
     final_scale = build_major_scale(low_midi)
     for degree,_,_ in pattern_notes:
         mf.addNote(0, 0, final_scale[degree-1], time, 4, final_chord_vol)
-    for b in range(4): mf.addNote(1, channel_drums, woodblock, time+b, 0.5, metronome_vol)
+    time += 4.0 # Sumamos los últimos 4 tiempos del acorde final
+
+    # ==========================
+    # 2. GENERAR METRÓNOMO INDEPENDIENTE
+    # ==========================
+    # math.ceil redondea hacia arriba el tiempo total, 
+    # garantizando un golpe exacto de negra (1.0) en cada tiempo de la pista.
+    total_beats = int(math.ceil(time))
+    for b in range(total_beats):
+        mf.addNote(1, channel_drums, woodblock, float(b), 0.5, metronome_vol)
 
     file_name = f"{exercise_name}_{bpm}bpm_{range_low}-{range_high}_{direction}.mid"
     with open(file_name, "wb") as f: 

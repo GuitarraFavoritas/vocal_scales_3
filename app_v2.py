@@ -129,7 +129,7 @@ st.markdown("""
 
     /*.st-emotion-cache-wfksaw { flex-flow: row !important; place-items: center; } */
 
-    @media (max-width: 340px) {
+    @media (min-width: 340px) {
     .st-emotion-cache-hua6f6 {
         min-width: calc(50% - 1.5rem);
     }

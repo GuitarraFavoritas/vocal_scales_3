@@ -106,8 +106,33 @@ with col_admin1:
                     db_v2.swap_exercise_order(k, db["exercises"][k]["order_index"], k_next, db["exercises"][k_next]["order_index"])
                     st.rerun()
 
+# ==============================
+# CSS MAESTRO DE COMPACTACIÓN MÓVIL
+# ==============================
+st.markdown("""
+<style>
+    /* Reducir el relleno interno de todos los Pop-overs y Formularios */
+    div[data-testid="stPopoverBody"] { padding: 0.5rem !important; }
+    div[data-testid="stForm"] { padding: 0.2rem 0.5rem !important; }
+    
+    /* Eliminar los saltos de línea y espacios entre elementos verticales */
+    div[data-testid="stVerticalBlock"] > div { margin-bottom: -0.6rem !important; }
+    
+    /* Juntar las columnas horizontales al máximo */
+    div[data-testid="stHorizontalBlock"] { gap: 0.2rem !important; }
+    
+    /* Eliminar los títulos (labels) colapsados que dejan un espacio vacío fantasma */
+    label:has(> div.st-visually-hidden) { display: none !important; }
+    
+    /* Achicar la altura de los botones secundarios (🔽🔼) */
+    button[kind="secondary"] { min-height: 1rem !important; padding: 0rem !important; }
+
+    /*.st-emotion-cache-wfksaw { flex-flow: row !important; place-items: center; } */
+</style>
+""", unsafe_allow_html=True)
+
 with col_admin2:
-    with st.popover("📁 Playlists & Archivo", use_container_width=True):
+    with st.popover("📁 Playlists", use_container_width=True):
         is_archived = "Archivar" in db["exercises"][exercise]["playlists"]
         
         if st.button("🔄 Desarchivar" if is_archived else "📦 Archivar", use_container_width=True):
@@ -115,42 +140,29 @@ with col_admin2:
             if is_archived: pl_list.remove("Archivar")
             else: pl_list.append("Archivar")
             db_v2.update_exercise_playlists(exercise, pl_list)
-            
-            # Limpiar memoria visual si desaparece de la vista actual
-            if "widget_selector" in st.session_state:
-                del st.session_state["widget_selector"]
+            if "widget_selector" in st.session_state: del st.session_state["widget_selector"]
             st.rerun()
             
-        st.divider()
         with st.form("form_etiquetas", border=False):
-            st.write("🏷️ **Etiquetas:**")
+            st.markdown("<p style='margin-bottom:15; font-weight:bold;'>🏷️ Etiquetas:</p>", unsafe_allow_html=True)
             current_pl = [p for p in db["exercises"][exercise]["playlists"] if p != "Archivar"]
             selected_pl = []
             
             for pl in user_playlists:
-                # SOLUCIÓN ERROR 2: Incluir el nombre del ejercicio en el 'key' del checkbox.
-                # Esto obliga a la interfaz a cargar los datos reales, y no los "reciclados".
-                dynamic_key = f"chk_{pl}_{exercise}"
-                if st.checkbox(pl, value=(pl in current_pl), key=dynamic_key): 
+                if st.checkbox(pl, value=(pl in current_pl), key=f"chk_{pl}_{exercise}"): 
                     selected_pl.append(pl)
                     
-            if st.form_submit_button("💾 Guardar etiquetas", use_container_width=True):
+            if st.form_submit_button("💾 Guardar", use_container_width=True):
                 final_pl = selected_pl + (["Archivar"] if is_archived else [])
                 db_v2.update_exercise_playlists(exercise, final_pl)
-                
-                # Si se eliminó de la lista actual, borrar la selección de la memoria
                 if current_filter != "Todas" and current_filter not in final_pl:
-                    if "widget_selector" in st.session_state:
-                        del st.session_state["widget_selector"]
-                        
+                    if "widget_selector" in st.session_state: del st.session_state["widget_selector"]
                 st.rerun()
                 
-        st.divider()
-        new_pl = st.text_input("Crear nueva categoría:")
-        if st.button("Crear y agregar", use_container_width=True) and new_pl:
+        new_pl = st.text_input("Nueva:", placeholder="Crear nueva...", label_visibility="collapsed")
+        if st.button("➕ Crear y agregar", use_container_width=True) and new_pl:
             clean_new = new_pl.strip()
             db_v2.create_playlist(clean_new)
-            
             pl_list = db["exercises"][exercise]["playlists"]
             if clean_new not in pl_list:
                 pl_list.append(clean_new)
@@ -158,38 +170,54 @@ with col_admin2:
             st.rerun()
 
 # ==============================
-# CONFIGURACIONES
+# CONFIGURACIONES SÚPER COMPACTAS
 # ==============================
 stgs = db["exercises"][exercise]["settings"]
 
-# Lista maestra ordenada cromáticamente (esencial para hacer cálculos de semitonos)
 master_notes = ["A2","A#2","B2","C3","C#3","D3","D#3","E3","F3","F#3","G3","G#3",
                 "A3","A#3","B3","C4","C#4","D4","D#4","E4","F4","F#4","G4","G#4",
                 "A4","A#4","B4","C5","C#5","D5"]
 
-# Aseguramos que los valores existan en la lista (fallback de seguridad)
 val_low = stgs.get("range_low", "A2")
 if val_low not in master_notes: val_low = "A2"
 val_high = stgs.get("range_high", "A4")
 if val_high not in master_notes: val_high = "A4"
 
-with st.popover("⚙️ Ajustes (Rango, Dirección, BPM)", use_container_width=True):
-    # FORMULARIO 1: Evita el guardado automático al mover los sliders
-    with st.form("form_ajustes", border=False):
-        opts_dir = ["ascend_descend","descend_ascend","ascend_only","descend_only"]
-
-        w_r_low = st.select_slider("Rango LOW", options=master_notes, value=val_low)
-        w_r_high = st.select_slider("Rango HIGH", options=master_notes, value=val_high)
-        w_dir = st.select_slider("Dirección", options=opts_dir, value=stgs.get("direction", "ascend_descend"))
-        w_bpm = st.slider("BPM", 0, 400, stgs.get("bpm", 200), 5)
-
-        st.write("🔄 **Transponer rango completo:**")
-        c1, c2 = st.columns(2)
-        btn_dw = c1.form_submit_button("🔽 Bajar -1", use_container_width=True)
-        btn_up = c2.form_submit_button("🔼 Subir +1", use_container_width=True)
+with st.popover("⚙️ Ajustes", use_container_width=True):
+    with st.form("form_ajustes", border=True):
         
-        # Botón Guardar principal
-        btn_sv = st.form_submit_button("💾 Guardar Ajustes", type="primary", use_container_width=True)
+        # 1. Rangos y Transposición (usando select_slider)
+        c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+        w_r_low = c1.select_slider(
+            "LOW", options=master_notes, value=val_low,
+            label_visibility="collapsed"
+        )
+        w_r_high = c2.select_slider(
+            "HIGH", options=master_notes, value=val_high,
+            label_visibility="collapsed"
+        )
+        btn_dw = c3.form_submit_button("🔽")
+        btn_up = c4.form_submit_button("🔼")
+
+        # 2. Dirección (sin etiqueta "Dir:")
+        dir_map = {"ascend_descend": "🔼🔽", "descend_ascend": "🔽🔼",
+                   "ascend_only": "🔼", "descend_only": "🔽"}
+        inv_dir_map = {v: k for k, v in dir_map.items()}
+        val_dir = dir_map.get(stgs.get("direction", "ascend_descend"), "🔼🔽")
+        w_dir_label = st.radio(
+            "Dir", options=list(dir_map.values()),
+            index=list(dir_map.values()).index(val_dir),
+            horizontal=True, label_visibility="collapsed"
+        )
+        w_dir = inv_dir_map[w_dir_label]
+
+        # 3. BPM (sin etiqueta "BPM")
+        w_bpm = st.slider(
+            "BPM", 0, 400, stgs.get("bpm", 200), 5,
+            label_visibility="collapsed"
+        )
+
+        btn_sv = st.form_submit_button("💾", type="primary", use_container_width=True)
 
         if btn_up or btn_dw or btn_sv:
             new_stgs = dict(stgs)
@@ -197,34 +225,44 @@ with st.popover("⚙️ Ajustes (Rango, Dirección, BPM)", use_container_width=T
             new_stgs["bpm"] = w_bpm
 
             if btn_up or btn_dw:
-                # 1. Obtenemos el índice actual en la lista maestra
                 idx_low = master_notes.index(w_r_low)
                 idx_high = master_notes.index(w_r_high)
-                
-                # 2. Aplicamos +1 o -1
                 shift = 1 if btn_up else -1
-                
-                # 3. Calculamos nuevo índice, limitando con max(0) y min(límite superior) de forma independiente
-                new_idx_low = max(0, min(len(master_notes)-1, idx_low + shift))
-                new_idx_high = max(0, min(len(master_notes)-1, idx_high + shift))
-                
-                new_stgs["range_low"] = master_notes[new_idx_low]
-                new_stgs["range_high"] = master_notes[new_idx_high]
+                new_stgs["range_low"] = master_notes[max(0, min(len(master_notes)-1, idx_low + shift))]
+                new_stgs["range_high"] = master_notes[max(0, min(len(master_notes)-1, idx_high + shift))]
             else:
-                # Si solo presionó Guardar Ajustes
                 new_stgs["range_low"] = w_r_low
                 new_stgs["range_high"] = w_r_high
 
             db_v2.update_exercise_settings(exercise, new_stgs)
             st.rerun()
 
-with st.popover("🎛️ Mezcladora", use_container_width=True):
-    # FORMULARIO 2: Evita el lag en la mezcladora
-    with st.form("form_mezcladora", border=False):
-        w_bridge = st.slider("Puente", 0, 32, stgs.get("bridge", 4), 1)
-        w_m_vol = st.slider("Metrónomo", 0, 127, stgs.get("metronome_vol", 80), 10)
-        w_n_vol = st.slider("Notas Vol.", 0, 127, stgs.get("notes_vol", 127), 10)
-        w_f_vol = st.slider("Chord Vol.", 0, 127, stgs.get("final_chord_vol", 85), 10)
+with st.popover("🎛️ Mezcla", use_container_width=True):
+    with st.form("form_mezcladora", border=True):
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("<small style='color:gray;'>🥁 Metrónomo</small>", unsafe_allow_html=True)
+            w_m_vol = st.slider(
+                "Metrónomo", 0, 127, stgs.get("metronome_vol", 80), 10,
+                label_visibility="collapsed"
+            )
+            st.markdown("<small style='color:gray;'>🌉 Puente</small>", unsafe_allow_html=True)
+            w_bridge = st.slider(
+                "Puente", 0, 32, stgs.get("bridge", 4), 1,
+                label_visibility="collapsed"
+            )
+        with col2:
+            st.markdown("<small style='color:gray;'>🎵 Notas</small>", unsafe_allow_html=True)
+            w_n_vol = st.slider(
+                "Notas Vol.", 0, 127, stgs.get("notes_vol", 127), 10,
+                label_visibility="collapsed"
+            )
+            st.markdown("<small style='color:gray;'>🎹 Acorde fin</small>", unsafe_allow_html=True)
+            w_f_vol = st.slider(
+                "Chord Vol.", 0, 127, stgs.get("final_chord_vol", 85), 10,
+                label_visibility="collapsed"
+            )
 
         if st.form_submit_button("💾 Guardar Mezcla", type="primary", use_container_width=True):
             new_stgs = dict(stgs)
@@ -232,7 +270,6 @@ with st.popover("🎛️ Mezcladora", use_container_width=True):
             new_stgs["metronome_vol"] = w_m_vol
             new_stgs["notes_vol"] = w_n_vol
             new_stgs["final_chord_vol"] = w_f_vol
-            
             db_v2.update_exercise_settings(exercise, new_stgs)
             st.rerun()
 

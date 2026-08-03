@@ -129,10 +129,8 @@ st.markdown("""
 
     /*.st-emotion-cache-wfksaw { flex-flow: row !important; place-items: center; } */
 
-    @media (min-width: 340px) {
-    .st-emotion-cache-hua6f6 {
-        min-width: calc(50% - 1.5rem);
-    }
+    @media (max-width: 640px) { 
+    .st-emotion-cache-hua6f6 { min-width: calc(50% - 1.5rem) !important; }
 }
 </style>
 """, unsafe_allow_html=True)

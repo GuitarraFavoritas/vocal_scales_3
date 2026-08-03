@@ -112,7 +112,7 @@ with col_admin1:
 st.markdown("""
 <style>
     /* Reducir el relleno interno de todos los Pop-overs y Formularios */
-    div[data-testid="stPopoverBody"] { padding: 0.5rem !important; }
+    div[data-testid="stPopoverBody"] { padding: 0.5rem 0.1rem 2rem 0.1rem !important; }
     div[data-testid="stForm"] { padding: 0.2rem 0.5rem !important; }
     
     /* Eliminar los saltos de línea y espacios entre elementos verticales */
@@ -125,9 +125,15 @@ st.markdown("""
     label:has(> div.st-visually-hidden) { display: none !important; }
     
     /* Achicar la altura de los botones secundarios (🔽🔼) */
-    button[kind="secondary"] { min-height: 1rem !important; padding: 0rem !important; }
+    button[kind="secondary"] { min-height: -1rem !important; padding: 0rem !important; }
 
     /*.st-emotion-cache-wfksaw { flex-flow: row !important; place-items: center; } */
+
+    @media (max-width: 640px) {
+    .st-emotion-cache-hua6f6 {
+        min-width: calc(50% - 1.5rem);
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -187,18 +193,19 @@ with st.popover("⚙️ Ajustes", use_container_width=True):
     with st.form("form_ajustes", border=True):
         
         # 1. Rangos y Transposición (usando select_slider)
-        c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
-        w_r_low = c1.select_slider(
-            "LOW", options=master_notes, value=val_low,
-            label_visibility="collapsed"
-        )
-        w_r_high = c2.select_slider(
-            "HIGH", options=master_notes, value=val_high,
-            label_visibility="collapsed"
-        )
-        btn_dw = c3.form_submit_button("🔽")
-        btn_up = c4.form_submit_button("🔼")
-
+        c1, c2 = st.columns(2)
+        with c1:
+            w_r_low = st.select_slider(
+                "LOW", options=master_notes, value=val_low,
+                label_visibility="collapsed"
+            )
+            btn_dw = st.form_submit_button("⬇️")                    
+        with c2:
+            w_r_high = st.select_slider(
+                "HIGH", options=master_notes, value=val_high,
+                label_visibility="collapsed"
+            )
+            btn_up = st.form_submit_button("⬆️")      
         # 2. Dirección (sin etiqueta "Dir:")
         dir_map = {"ascend_descend": "🔼🔽", "descend_ascend": "🔽🔼",
                    "ascend_only": "🔼", "descend_only": "🔽"}
@@ -211,33 +218,35 @@ with st.popover("⚙️ Ajustes", use_container_width=True):
         )
         w_dir = inv_dir_map[w_dir_label]
 
-        # 3. BPM (sin etiqueta "BPM")
-        w_bpm = st.slider(
-            "BPM", 0, 400, stgs.get("bpm", 200), 5,
-            label_visibility="collapsed"
-        )
+        c1, c2 = st.columns(2)     
+        with c1:
+            # 3. BPM (sin etiqueta "BPM")
+            w_bpm = st.slider(
+                "BPM", 0, 400, stgs.get("bpm", 200), 5,
+                label_visibility="collapsed"
+            )
+        with c2:
+            btn_sv = st.form_submit_button("💾", type="primary", use_container_width=True)
 
-        btn_sv = st.form_submit_button("💾", type="primary", use_container_width=True)
+            if btn_up or btn_dw or btn_sv:
+                new_stgs = dict(stgs)
+                new_stgs["direction"] = w_dir
+                new_stgs["bpm"] = w_bpm
 
-        if btn_up or btn_dw or btn_sv:
-            new_stgs = dict(stgs)
-            new_stgs["direction"] = w_dir
-            new_stgs["bpm"] = w_bpm
+                if btn_up or btn_dw:
+                    idx_low = master_notes.index(w_r_low)
+                    idx_high = master_notes.index(w_r_high)
+                    shift = 1 if btn_up else -1
+                    new_stgs["range_low"] = master_notes[max(0, min(len(master_notes)-1, idx_low + shift))]
+                    new_stgs["range_high"] = master_notes[max(0, min(len(master_notes)-1, idx_high + shift))]
+                else:
+                    new_stgs["range_low"] = w_r_low
+                    new_stgs["range_high"] = w_r_high
 
-            if btn_up or btn_dw:
-                idx_low = master_notes.index(w_r_low)
-                idx_high = master_notes.index(w_r_high)
-                shift = 1 if btn_up else -1
-                new_stgs["range_low"] = master_notes[max(0, min(len(master_notes)-1, idx_low + shift))]
-                new_stgs["range_high"] = master_notes[max(0, min(len(master_notes)-1, idx_high + shift))]
-            else:
-                new_stgs["range_low"] = w_r_low
-                new_stgs["range_high"] = w_r_high
+                db_v2.update_exercise_settings(exercise, new_stgs)
+                st.rerun()
 
-            db_v2.update_exercise_settings(exercise, new_stgs)
-            st.rerun()
-
-with st.popover("🎛️ Mezcla", use_container_width=True):
+with st.popover("🎛️ Volumenes", use_container_width=True):
     with st.form("form_mezcladora", border=True):
         
         col1, col2 = st.columns(2)

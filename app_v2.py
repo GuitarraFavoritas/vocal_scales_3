@@ -130,7 +130,7 @@ st.markdown("""
     /*.st-emotion-cache-wfksaw { flex-flow: row !important; place-items: center; } */
 
     @media (max-width: 640px) { 
-    .st-emotion-cache-hua6f6 { min-width: calc(50% - 1.5rem) !important; }
+    .st-emotion-cache-hua6f6 { max-width: calc(50% - 1.5rem) !important; }
 }
 </style>
 """, unsafe_allow_html=True)

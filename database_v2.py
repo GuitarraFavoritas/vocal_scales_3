@@ -1,11 +1,11 @@
- # --- START OF FILE database_v2.py ---
 import os
 import streamlit as st
 from supabase import create_client, Client
 
 DEFAULT_SETTINGS = {
     "range_low": "A2", "range_high": "A4", "direction": "ascend_descend",
-    "bpm": 200, "bridge": 4, "metronome_vol": 80, "notes_vol": 127, "final_chord_vol": 80
+    "bpm": 200, "bridge": 4, "metronome_vol": 80, "notes_vol": 127, "final_chord_vol": 80,
+    "repeats": 1
 }
 
 @st.cache_resource
@@ -20,11 +20,8 @@ def init_connection() -> Client:
 
 supabase_client = init_connection()
 
-def clear_cache():
-    """Limpia el caché para forzar la recarga desde la BD."""
-    load_db.clear()
-
-@st.cache_data(ttl=300)
+# Usamos cache_resource para poder mutar el diccionario en memoria al instante
+@st.cache_resource
 def load_db():
     """Descarga los datos relacionales y los empaqueta en un diccionario para la UI."""
     data = {"playlists": [], "exercises": {}}
@@ -46,56 +43,71 @@ def load_db():
             "pattern": row["pattern"],
             "order_index": row["order_index"],
             "playlists": row["playlists"] if row["playlists"] else [],
-            "settings": {k: row[k] for k in DEFAULT_SETTINGS.keys()}
+            "settings": {k: row.get(k, DEFAULT_SETTINGS[k]) for k in DEFAULT_SETTINGS.keys()}
         }
         
     return data
 
 # ==========================================
-# FUNCIONES GRANULARES DE GUARDADO (NIVEL 3)
+# FUNCIONES OPTIMIZADAS (ACTUALIZACIÓN EN MEMORIA)
 # ==========================================
 
 def update_pref_filter(filter_name):
     supabase_client.table("v2_prefs").update({"last_filter": filter_name}).eq("id", 1).execute()
-    clear_cache()
+    load_db()["last_selected_filter"] = filter_name # Modifica el caché local al instante
 
 def update_pref_exercise(ex_name):
     supabase_client.table("v2_prefs").update({"last_exercise": ex_name}).eq("id", 1).execute()
-    clear_cache()
+    load_db()["last_selected_exercise"] = ex_name
 
 def update_exercise_settings(ex_name, settings):
     supabase_client.table("v2_exercises").update(settings).eq("name", ex_name).execute()
-    clear_cache()
+    load_db()["exercises"][ex_name]["settings"] = settings
 
 def update_exercise_playlists(ex_name, playlists):
     supabase_client.table("v2_exercises").update({"playlists": playlists}).eq("name", ex_name).execute()
-    clear_cache()
+    load_db()["exercises"][ex_name]["playlists"] = playlists
 
 def create_playlist(pl_name):
     try:
         supabase_client.table("v2_playlists").insert({"name": pl_name}).execute()
-        clear_cache()
-    except Exception: pass # Si ya existe, lo ignora
+        if pl_name not in load_db()["playlists"]:
+            load_db()["playlists"].append(pl_name)
+    except Exception: pass
 
 def update_exercise_core(old_name, new_name, new_pattern):
     supabase_client.table("v2_exercises").update({"name": new_name, "pattern": new_pattern}).eq("name", old_name).execute()
-    clear_cache()
+    db = load_db()
+    # Mover los datos al nuevo nombre en el caché local
+    db["exercises"][new_name] = db["exercises"].pop(old_name)
+    db["exercises"][new_name]["pattern"] = new_pattern
 
 def create_exercise(name, pattern, order_index):
     try:
         supabase_client.table("v2_exercises").insert({
             "name": name, "pattern": pattern, "order_index": order_index
         }).execute()
-        clear_cache()
+        load_db()["exercises"][name] = {
+            "pattern": pattern,
+            "order_index": order_index,
+            "playlists": [],
+            "settings": DEFAULT_SETTINGS.copy()
+        }
     except Exception as e:
         st.error(f"Error al crear: {e}")
 
 def delete_exercise(name):
     supabase_client.table("v2_exercises").delete().eq("name", name).execute()
-    clear_cache()
+    load_db()["exercises"].pop(name, None)
 
 def swap_exercise_order(name1, order1, name2, order2):
-    # En SQL no puedes tener 2 con el mismo orden temporalmente si fuera UNIQUE, pero aquí es INT normal
     supabase_client.table("v2_exercises").update({"order_index": order2}).eq("name", name1).execute()
     supabase_client.table("v2_exercises").update({"order_index": order1}).eq("name", name2).execute()
-    clear_cache()
+    
+    # Actualizar órdenes locales
+    db = load_db()
+    db["exercises"][name1]["order_index"] = order2
+    db["exercises"][name2]["order_index"] = order1
+    
+    # Reordenar el diccionario local para que la UI lo refleje de inmediato
+    db["exercises"] = dict(sorted(db["exercises"].items(), key=lambda item: item[1]["order_index"]))

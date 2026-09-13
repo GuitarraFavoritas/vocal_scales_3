@@ -31,6 +31,7 @@ def pattern_fits_in_range(pattern_degrees, root, high_midi):
 def generate_midi(exercise_name, pattern_str, settings):
     pattern_notes = parse_pattern(pattern_str)
     bpm = settings["bpm"]
+    repeats = settings.get("repeats", 1)
     range_low, range_high = settings["range_low"], settings["range_high"]
     direction = settings["direction"]
     bridge = settings["bridge"]
@@ -65,29 +66,61 @@ def generate_midi(exercise_name, pattern_str, settings):
     # 1. GENERAR PISTA MELÓDICA
     # ==========================
     time = 4.0 # Dejamos 4 tiempos al inicio (Count-in)
+    peaks_data = [] # NUEVO: Guardará la nota pico de cada bloque
     
     for i, root in enumerate(roots):
         scale = build_major_scale(root)
-        for idx, (degree, length, accidental) in enumerate(pattern_notes, start=1):
-            note_num = scale[degree-1] + accidental
-            mf.addNote(0, 0, note_num, time, length, notes_vol)
-            time += length
+        
+        for rep in range(repeats):
+            rep_start_beat = time
+            rep_max_pitch = -1
+            
+            # 1. Tocar las notas del patrón
+            for idx, (degree, length, accidental) in enumerate(pattern_notes, start=1):
+                note_num = scale[degree-1] + accidental
+                if note_num > rep_max_pitch:
+                    rep_max_pitch = note_num
+                mf.addNote(0, 0, note_num, time, length, notes_vol)
+                time += length
 
-        if i < len(roots)-1:
-            next_root = roots[i+1]
-            mf.addNote(0, 0, next_root, time, bridge, notes_vol)
-            time += bridge
+            rep_end_beat = time
+            
+            # Guardamos la nota más alta de esta repetición y sus tiempos en segundos
+            peaks_data.append({
+                "start": rep_start_beat * (60.0 / bpm),
+                "end": rep_end_beat * (60.0 / bpm),
+                "pitch": rep_max_pitch
+            })
 
+            # 2. Lógica del Puente (Bridge)
+            if rep < repeats - 1:
+                mf.addNote(0, 0, root, time, bridge, notes_vol)
+                time += bridge
+            elif i < len(roots) - 1:
+                next_root = roots[i+1]
+                mf.addNote(0, 0, next_root, time, bridge, notes_vol)
+                time += bridge
+
+    # Acorde final
     final_scale = build_major_scale(low_midi)
+    final_chord_start = time
+    final_max_pitch = -1
     for degree,_,_ in pattern_notes:
-        mf.addNote(0, 0, final_scale[degree-1], time, 4, final_chord_vol)
-    time += 4.0 # Sumamos los últimos 4 tiempos del acorde final
+        note_num = final_scale[degree-1]
+        if note_num > final_max_pitch:
+            final_max_pitch = note_num
+        mf.addNote(0, 0, note_num, time, 4, final_chord_vol)
+    time += 4.0 
+    
+    peaks_data.append({
+        "start": final_chord_start * (60.0 / bpm),
+        "end": time * (60.0 / bpm),
+        "pitch": final_max_pitch
+    })
 
     # ==========================
     # 2. GENERAR METRÓNOMO INDEPENDIENTE
     # ==========================
-    # math.ceil redondea hacia arriba el tiempo total, 
-    # garantizando un golpe exacto de negra (1.0) en cada tiempo de la pista.
     total_beats = int(math.ceil(time))
     for b in range(total_beats):
         mf.addNote(1, channel_drums, woodblock, float(b), 0.5, metronome_vol)
@@ -102,4 +135,5 @@ def generate_midi(exercise_name, pattern_str, settings):
     b64_midi = base64.b64encode(midi_data).decode("utf-8")
     midi_uri = f"data:audio/midi;base64,{b64_midi}"
     
-    return file_name, midi_uri
+    # NUEVO: Devolvemos también la lista de picos (peaks_data)
+    return file_name, midi_uri, peaks_data

@@ -1,6 +1,10 @@
+import json
 import streamlit.components.v1 as components
 
-def render_midi_player(midi_uri):
+def render_midi_player(midi_uri, peaks_data=None):
+    if peaks_data is None: peaks_data = []
+    peaks_json = json.dumps(peaks_data)
+    
     html_player = f"""
     <!DOCTYPE html><html><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -9,41 +13,65 @@ def render_midi_player(midi_uri):
         * {{ box-sizing: border-box; }} 
         body {{ margin: 0; padding: 0; width: 100vw; background-color: #121212; overflow-x: hidden; font-family: sans-serif; }} 
         midi-player {{ width: 100%; display: block; margin: 10px 0; }}
-        #note-display-wrapper {{ display: flex; justify-content: center; margin: 10px 0 5px 0; }}
-        #note-display {{
-            font-size: 2.5rem; font-weight: 900; color: #444; 
-            background: #1a1a1a; padding: 10px 50px; 
+        
+        #display-container {{ display: flex; justify-content: center; gap: 15px; margin: 10px 0 5px 0; }}
+        
+        .note-box-container {{ display: flex; flex-direction: column; align-items: center; width: 140px; }}
+        .note-box-label {{ color: #888; font-size: 0.8rem; margin-bottom: 5px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }}
+        
+        .note-box {{
+            font-size: 2.2rem; font-weight: 900; color: #444; 
+            background: #1a1a1a; padding: 10px 0; width: 100%;
             border-radius: 12px; border: 2px solid #333;
-            min-width: 160px; text-align: center;
-            transition: all 0.05s ease-out;
+            text-align: center; transition: all 0.05s ease-out;
         }}
+        
         #note-display.active {{
             color: #FFD700; border-color: #FFD700;
             text-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
             transform: scale(1.05);
         }}
+        
+        #peak-display.active {{
+            color: #00BFFF; border-color: #00BFFF;
+            text-shadow: 0 0 15px rgba(0, 191, 255, 0.6);
+        }}
     </style>
     </head><body>
     <div style="display: flex; flex-direction: column; width: 100%; gap: 5px; padding: 5px;">
-        <div id="note-display-wrapper"><div id="note-display">--</div></div>
+        <div id="display-container">
+            <div class="note-box-container">
+                <div class="note-box-label">Nota Actual</div>
+                <div id="note-display" class="note-box">--</div>
+            </div>
+            <div class="note-box-container">
+                <div class="note-box-label">Top Repetición</div>
+                <div id="peak-display" class="note-box">--</div>
+            </div>
+        </div>
         <midi-player src="{midi_uri}" sound-font></midi-player>
     </div>
     <script>
+        const peaksData = {peaks_json};
         const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
         function getNoteName(pitch) {{
             const octave = Math.floor(pitch / 12) - 1;
             return notes[pitch % 12] + octave;
         }}
+        
         const noteDisplay = document.getElementById('note-display');
+        const peakDisplay = document.getElementById('peak-display');
         const player = document.querySelector('midi-player');
+        
         let animationId;
         let currentActiveNote = null;
 
         function checkPlaybackTime() {{
             if (player.playing && player.noteSequence) {{
                 const time = player.currentTime;
+                
+                // 1. Lógica de Nota en tiempo real
                 const activeNotes = player.noteSequence.notes.filter(n => time >= n.startTime && time < n.endTime && !n.isDrum);
-
                 if (activeNotes.length > 0) {{
                     const note = activeNotes[0];
                     if (currentActiveNote !== note) {{
@@ -61,12 +89,38 @@ def render_midi_player(midi_uri):
                         noteDisplay.classList.remove('active');
                     }}
                 }}
+                
+                // 2. Lógica de "Top Repetición" (Muestra la nota desde el puente preparatorio)
+                const currentPeak = peaksData.find(p => time < p.end);
+                if (currentPeak) {{
+                    const peakNoteName = getNoteName(currentPeak.pitch);
+                    if (peakDisplay.innerText !== peakNoteName) {{
+                        peakDisplay.innerText = peakNoteName;
+                        peakDisplay.classList.add('active');
+                    }}
+                }} else {{
+                    peakDisplay.innerText = "--";
+                    peakDisplay.classList.remove('active');
+                }}
             }}
             animationId = requestAnimationFrame(checkPlaybackTime);
         }}
-        player.addEventListener('start', () => {{ currentActiveNote = null; animationId = requestAnimationFrame(checkPlaybackTime); }});
-        player.addEventListener('stop', () => {{ cancelAnimationFrame(animationId); currentActiveNote = null; noteDisplay.innerText = "--"; noteDisplay.classList.remove('active'); }});
+        
+        player.addEventListener('start', () => {{ 
+            currentActiveNote = null; 
+            animationId = requestAnimationFrame(checkPlaybackTime); 
+        }});
+        
+        player.addEventListener('stop', () => {{ 
+            cancelAnimationFrame(animationId); 
+            currentActiveNote = null; 
+            noteDisplay.innerText = "--"; 
+            noteDisplay.classList.remove('active'); 
+            peakDisplay.innerText = "--";
+            peakDisplay.classList.remove('active'); 
+        }});
     </script>
     </body></html>
     """
-    components.html(html_player, height=170)
+    # Aumenté levemente la altura de 170 a 190 para que quepan bien los nuevos recuadros
+    components.html(html_player, height=190)

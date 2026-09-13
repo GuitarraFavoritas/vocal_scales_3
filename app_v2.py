@@ -129,8 +129,8 @@ st.markdown("""
 
     /*.st-emotion-cache-wfksaw { flex-flow: row !important; place-items: center; } */
 
-    @media (max-width: 640px) { 
-    .st-emotion-cache-hua6f6 { max-width: calc(50% - 1.5rem) !important; }
+    @media (max-width: 640px) {
+    .st-emotion-cache-hua6f6 { min-width: calc(50% - 1.5rem) !important; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -216,33 +216,40 @@ with st.popover("⚙️ Ajustes", use_container_width=True):
         )
         w_dir = inv_dir_map[w_dir_label]
 
-        c1, c2 = st.columns(2)     
+        c1, c2, c3 = st.columns([3, 3, 2])     
         with c1:
-            # 3. BPM (sin etiqueta "BPM")
+            # 3. BPM
             w_bpm = st.slider(
                 "BPM", 0, 400, stgs.get("bpm", 200), 5,
-                label_visibility="collapsed"
+                help="BPM (Velocidad)", label_visibility="collapsed"
             )
         with c2:
+            # 4. Repeticiones
+            w_repeats = st.slider(
+                "Repeticiones", 1, 100, stgs.get("repeats", 1), 1,
+                help="Repeticiones por nota", label_visibility="collapsed"
+            )
+        with c3:
             btn_sv = st.form_submit_button("💾", type="primary", use_container_width=True)
 
-            if btn_up or btn_dw or btn_sv:
-                new_stgs = dict(stgs)
-                new_stgs["direction"] = w_dir
-                new_stgs["bpm"] = w_bpm
+        if btn_up or btn_dw or btn_sv:
+            new_stgs = dict(stgs)
+            new_stgs["direction"] = w_dir
+            new_stgs["bpm"] = w_bpm
+            new_stgs["repeats"] = w_repeats # <--- GUARDAR REPETICIONES
 
-                if btn_up or btn_dw:
-                    idx_low = master_notes.index(w_r_low)
-                    idx_high = master_notes.index(w_r_high)
-                    shift = 1 if btn_up else -1
-                    new_stgs["range_low"] = master_notes[max(0, min(len(master_notes)-1, idx_low + shift))]
-                    new_stgs["range_high"] = master_notes[max(0, min(len(master_notes)-1, idx_high + shift))]
-                else:
-                    new_stgs["range_low"] = w_r_low
-                    new_stgs["range_high"] = w_r_high
+            if btn_up or btn_dw:
+                idx_low = master_notes.index(w_r_low)
+                idx_high = master_notes.index(w_r_high)
+                shift = 1 if btn_up else -1
+                new_stgs["range_low"] = master_notes[max(0, min(len(master_notes)-1, idx_low + shift))]
+                new_stgs["range_high"] = master_notes[max(0, min(len(master_notes)-1, idx_high + shift))]
+            else:
+                new_stgs["range_low"] = w_r_low
+                new_stgs["range_high"] = w_r_high
 
-                db_v2.update_exercise_settings(exercise, new_stgs)
-                st.rerun()
+            db_v2.update_exercise_settings(exercise, new_stgs)
+            st.rerun()
 
 with st.popover("🎛️ Volumenes", use_container_width=True):
     with st.form("form_mezcladora", border=True):
@@ -286,8 +293,8 @@ with st.popover("🎛️ Volumenes", use_container_width=True):
 if st.button("Generar MIDI", type="primary", use_container_width=True):
     with st.spinner("Creando audio..."):
         try:
-            file_name, midi_uri = generate_midi(exercise, db["exercises"][exercise]["pattern"], stgs)
+            file_name, midi_uri, peaks_data = generate_midi(exercise, db["exercises"][exercise]["pattern"], stgs)
             st.success(f"✅ {file_name}")
-            render_midi_player(midi_uri)
+            render_midi_player(midi_uri, peaks_data)
         except Exception as e:
             st.error(f"❌ Error de sintaxis en el patrón: {e}")

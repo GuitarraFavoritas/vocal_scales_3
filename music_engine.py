@@ -10,14 +10,23 @@ def note_to_midi(note):
 def parse_pattern(pat):
     result = []
     for token in pat.replace(" ", "").split(","):
+        if not token: continue # Por si hay una coma extra al final
+        
         if "[x" in token:
             degree, length = token.split("[x")
             length = float(length[:-1])
         else:
             degree, length = token, 1.0
-        if degree.endswith("b"): result.append((int(degree[:-1]), length, -1))
-        elif degree.endswith("#"): result.append((int(degree[:-1]), length, +1))
-        else: result.append((int(degree), length, 0))
+            
+        # NUEVO: Lógica para identificar silencios (usando '0' o 'R')
+        if degree.upper() == "R" or degree == "0": 
+            result.append((0, length, 0)) # El 0 representará un silencio internamente
+        elif degree.endswith("b"): 
+            result.append((int(degree[:-1]), length, -1))
+        elif degree.endswith("#"): 
+            result.append((int(degree[:-1]), length, +1))
+        else: 
+            result.append((int(degree), length, 0))
     return result
 
 def build_major_scale(root_midi):
@@ -25,7 +34,10 @@ def build_major_scale(root_midi):
 
 def pattern_fits_in_range(pattern_degrees, root, high_midi):
     scale = build_major_scale(root)
-    max_degree = max(deg for deg,_,_ in pattern_degrees)
+    # NUEVO: Ignoramos los silencios (degree 0) para calcular la nota más alta
+    active_degrees = [deg for deg,_,_ in pattern_degrees if deg > 0]
+    if not active_degrees: return True
+    max_degree = max(active_degrees)
     return scale[max_degree-1] <= high_midi
 
 def generate_midi(exercise_name, pattern_str, settings):
@@ -77,6 +89,12 @@ def generate_midi(exercise_name, pattern_str, settings):
             
             # 1. Tocar las notas del patrón
             for idx, (degree, length, accidental) in enumerate(pattern_notes, start=1):
+                
+                # NUEVO: Si es un silencio (0), solo avanzamos el tiempo y continuamos
+                if degree == 0:
+                    time += length
+                    continue
+                    
                 note_num = scale[degree-1] + accidental
                 if note_num > rep_max_pitch:
                     rep_max_pitch = note_num
@@ -106,6 +124,8 @@ def generate_midi(exercise_name, pattern_str, settings):
     final_chord_start = time
     final_max_pitch = -1
     for degree,_,_ in pattern_notes:
+        if degree == 0: continue # NUEVO: Omitir silencios en el acorde final
+        
         note_num = final_scale[degree-1]
         if note_num > final_max_pitch:
             final_max_pitch = note_num

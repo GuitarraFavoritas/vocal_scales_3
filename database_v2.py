@@ -20,7 +20,6 @@ def init_connection() -> Client:
 
 supabase_client = init_connection()
 
-# Usamos cache_resource para poder mutar el diccionario en memoria al instante
 @st.cache_resource
 def load_db():
     """Descarga los datos relacionales y los empaqueta en un diccionario para la UI."""

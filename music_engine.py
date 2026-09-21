@@ -9,24 +9,36 @@ def note_to_midi(note):
 
 def parse_pattern(pat):
     result = []
-    for token in pat.replace(" ", "").split(","):
-        if not token: continue # Por si hay una coma extra al final
+    # Limpiamos espacios, saltos de línea y barras divisorias decorativas
+    clean_pat = pat.replace(" ", "").replace("|", "").replace("\n", "")
+    
+    for token in clean_pat.split(","):
+        if not token: continue 
         
+        # 1. Extraer duración fraccionaria si usa [x0.5]
         if "[x" in token:
-            degree, length = token.split("[x")
-            length = float(length[:-1])
+            degree, length_str = token.split("[x")
+            length = float(length_str[:-1])
+            token = degree
         else:
-            degree, length = token, 1.0
+            length = 1.0
             
-        # NUEVO: Lógica para identificar silencios (usando '0' o 'R')
-        if degree.upper() == "R" or degree == "0": 
-            result.append((0, length, 0)) # El 0 representará un silencio internamente
-        elif degree.endswith("b"): 
-            result.append((int(degree[:-1]), length, -1))
-        elif degree.endswith("#"): 
-            result.append((int(degree[:-1]), length, +1))
+        # 2. Extraer duración por guiones (Ej: 1--- = 4 tiempos)
+        dashes = token.count("-")
+        if dashes > 0:
+            length = 1.0 + dashes
+            token = token.replace("-", "") # Quitamos los guiones para quedarnos con el número
+            
+        # 3. Detectar nota, alteración o silencio (Ahora acepta el 0)
+        if token.upper() == "R" or token == "0": 
+            result.append((0, length, 0)) # El 0 absoluto es silencio
+        elif token.endswith("b"): 
+            result.append((int(token[:-1]), length, -1))
+        elif token.endswith("#"): 
+            result.append((int(token[:-1]), length, +1))
         else: 
-            result.append((int(degree), length, 0))
+            result.append((int(token), length, 0))
+            
     return result
 
 def build_major_scale(root_midi):
@@ -142,9 +154,23 @@ def generate_midi(exercise_name, pattern_str, settings):
     # 2. GENERAR METRÓNOMO INDEPENDIENTE
     # ==========================
     total_beats = int(math.ceil(time))
-    for b in range(total_beats):
-        mf.addNote(1, channel_drums, woodblock, float(b), 0.5, metronome_vol)
+    beats_per_measure = 4  # Asumimos un compás estándar de 4/4
+    
+    # 76 = High Wood Block (Agudo), 77 = Low Wood Block (Grave)
+    # (Opcional: Si prefieres el sonido clásico mecánico, cambia a 34 y 33)
+    sound_accent = 76  
+    sound_normal = 77  
 
+    for b in range(total_beats):
+        if b % beats_per_measure == 0:
+            # Tiempo 1 (Inicio de compás): Sonido agudo y un poco más fuerte
+            accent_vol = min(127, metronome_vol + 15) if metronome_vol > 0 else 0
+            mf.addNote(1, channel_drums, sound_accent, float(b), 0.5, accent_vol)
+        else:
+            # Tiempos 2, 3 y 4: Sonido grave y volumen normal
+            mf.addNote(1, channel_drums, sound_normal, float(b), 0.5, metronome_vol)
+
+    # === GUARDAR Y RETORNAR (Esto es lo que seguramente faltaba) ===
     file_name = f"{exercise_name}_{bpm}bpm_{range_low}-{range_high}_{direction}.mid"
     with open(file_name, "wb") as f: 
         mf.writeFile(f)
@@ -155,5 +181,36 @@ def generate_midi(exercise_name, pattern_str, settings):
     b64_midi = base64.b64encode(midi_data).decode("utf-8")
     midi_uri = f"data:audio/midi;base64,{b64_midi}"
     
-    # NUEVO: Devolvemos también la lista de picos (peaks_data)
     return file_name, midi_uri, peaks_data
+
+# Añadir al final de music_engine.py
+def generate_preview_midi(pattern_str, bpm=120):
+    """Genera un archivo MIDI corto de 1 sola repetición para previsualizar"""
+    pattern_notes = parse_pattern(pattern_str)
+    
+    # Creamos un archivo de 1 sola pista para el preview (sin metrónomo)
+    mf = MIDIFile(1)
+    mf.addTempo(0, 0, bpm)
+    
+    time = 0.0
+    # Usamos C4 (Midi 60) como nota base para el preview
+    scale = build_major_scale(60) 
+    
+    for idx, (degree, length, accidental) in enumerate(pattern_notes):
+        if degree == 0:  # Lógica de silencios
+            time += length
+            continue
+            
+        note_num = scale[degree-1] + accidental
+        mf.addNote(0, 0, note_num, time, length, 100)
+        time += length
+        
+    file_name = "preview_temp.mid"
+    with open(file_name, "wb") as f: 
+        mf.writeFile(f)
+        
+    with open(file_name, "rb") as f: 
+        midi_data = f.read()
+        
+    b64_midi = base64.b64encode(midi_data).decode("utf-8")
+    return f"data:audio/midi;base64,{b64_midi}"

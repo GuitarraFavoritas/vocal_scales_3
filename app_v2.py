@@ -1,9 +1,7 @@
-# --- START OF FILE app_v2.py ---
 import streamlit as st
 import database_v2 as db_v2
-from music_engine import generate_midi
-from ui_components import render_midi_player
-
+from music_engine import generate_midi, generate_preview_midi
+from ui_components import render_midi_player, render_virtual_keyboard
 db = db_v2.load_db()
 
 def clean_edit_cache():
@@ -24,8 +22,17 @@ def update_filter():
     db_v2.update_pref_filter(st.session_state.widget_filter)
     clean_edit_cache()
 
-with st.popover(f"📂 Carpeta: {st.session_state.widget_filter}", use_container_width=True):
-    st.radio("Selecciona carpeta:", all_filters, key="widget_filter", on_change=update_filter, label_visibility="collapsed")
+# Dividimos la parte superior para hacer espacio al botón de sincronizar
+col_top1, col_top2 = st.columns([8, 2])
+
+with col_top1:
+    with st.popover(f"📂 Carpeta: {st.session_state.widget_filter}", use_container_width=True):
+        st.radio("Selecciona carpeta:", all_filters, key="widget_filter", on_change=update_filter, label_visibility="collapsed")
+
+with col_top2:
+    if st.button("🔄", help="Sincronizar BD (Traer cambios de otros dispositivos)", use_container_width=True):
+        db_v2.load_db.clear()  # <--- Este es el comando directo de Streamlit
+        st.rerun()
 
 current_filter = st.session_state.widget_filter
 
@@ -57,6 +64,43 @@ with st.popover(f"🎵 Ejercicio: {st.session_state.widget_selector}", use_conta
 st.session_state.selected_ex = exercise
 
 # ==============================
+# TRADUCTORES DE PATRÓN (Texto <-> Tabla)
+# ==============================
+def parse_pattern_to_list(pat):
+    res = []
+    for token in pat.replace(" ", "").split(","):
+        if not token: continue
+        dur = 1.0
+        if "[x" in token:
+            try:
+                base, d_str = token.split("[x")
+                dur = float(d_str[:-1])
+                token = base
+            except: pass
+        
+        alt = ""
+        if token.endswith("b"): alt = "b"; token = token[:-1]
+        elif token.endswith("#"): alt = "#"; token = token[:-1]
+        
+        nota = "R" if token.upper() in ["R", "0"] else token
+        res.append({"Nota": nota, "Alt": alt, "Dur": dur})
+    
+    if not res: res = [{"Nota": "1", "Alt": "", "Dur": 1.0}]
+    return res
+
+def list_to_pattern(lst):
+    tokens = []
+    for row in lst:
+        n = str(row.get("Nota", "1")).strip()
+        base = "R" if n.upper() == "R" else f"{n}{row.get('Alt', '')}"
+        try: dur = float(row.get("Dur", 1.0))
+        except: dur = 1.0
+        
+        if dur == 1.0: tokens.append(base)
+        else: tokens.append(f"{base}[x{dur:g}]")
+    return ", ".join(tokens)
+
+# ==============================
 # MENÚS ADMINISTRACIÓN
 # ==============================
 col_admin1, col_admin2 = st.columns(2)
@@ -67,22 +111,52 @@ with col_admin1:
 
         with tab_edit:
             edit_name = st.text_input("Nombre:", value=exercise)
-            edit_pat = st.text_area("Patrón musical:", value=db["exercises"][exercise]["pattern"], height=100)
-            if st.button("Guardar cambios", type="primary", use_container_width=True):
-                if edit_name.strip() and edit_pat.strip():
-                    db_v2.update_exercise_core(exercise, edit_name.strip(), edit_pat.strip())
-                    clean_edit_cache()
-                    st.rerun()
+            current_db_pat = db["exercises"][exercise]["pattern"]
+            
+            # El teclado ahora retorna el patrón directamente a Python
+            kbd_val = render_virtual_keyboard(current_db_pat, key="kbd_edit")
+            
+            # Si el teclado aún no envía datos (primer microsegundo), usamos el patrón guardado
+            final_pat = kbd_val if kbd_val is not None else current_db_pat
+            
+            # Botones de Acción directos
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                if st.button("▶️ Preview", use_container_width=True, key="prev_edit"):
+                    try:
+                        prev_uri = generate_preview_midi(final_pat, stgs.get("bpm", 120))
+                        render_midi_player(prev_uri)
+                    except Exception: st.error("Error en patrón")
+            with col_p2:
+                if st.button("💾 Guardar", type="primary", use_container_width=True):
+                    if edit_name.strip() and final_pat.strip():
+                        db_v2.update_exercise_core(exercise, edit_name.strip(), final_pat.strip())
+                        clean_edit_cache()
+                        st.rerun()
 
         with tab_new:
-            new_name = st.text_input("Nombre:")
-            new_pat = st.text_area("Patrón:", height=100)
-            if st.button("Crear", type="primary", use_container_width=True):
-                if new_name.strip() and new_name.strip() not in db["exercises"]:
-                    max_order = max([d["order_index"] for d in db["exercises"].values()]) if db["exercises"] else 0
-                    db_v2.create_exercise(new_name.strip(), new_pat.strip(), max_order + 1)
-                    clean_edit_cache()
-                    st.rerun()
+            new_name = st.text_input("Nombre (Nuevo):")
+            default_new_pat = "1, 2, 3, 4, | \n5, 0, 1---" 
+            
+            # Teclado Constructor
+            kbd_val_new = render_virtual_keyboard(default_new_pat, key="kbd_new")
+            final_pat_new = kbd_val_new if kbd_val_new is not None else default_new_pat
+            
+            # Botones de Acción directos
+            col_n1, col_n2 = st.columns(2)
+            with col_n1:
+                if st.button("▶️ Preview", use_container_width=True, key="prev_new"):
+                    try:
+                        prev_uri = generate_preview_midi(final_pat_new, 120)
+                        render_midi_player(prev_uri)
+                    except Exception: st.error("Error en patrón")
+            with col_n2:
+                if st.button("➕ Crear", type="primary", use_container_width=True):
+                    if new_name.strip() and final_pat_new.strip() and new_name.strip() not in db["exercises"]:
+                        max_order = max([d["order_index"] for d in db["exercises"].values()]) if db["exercises"] else 0
+                        db_v2.create_exercise(new_name.strip(), final_pat_new.strip(), max_order + 1)
+                        clean_edit_cache()
+                        st.rerun()
 
         with tab_del:
             st.warning(f"¿Borrar '{exercise}'?")
@@ -132,6 +206,8 @@ st.markdown("""
     @media (max-width: 640px) {
     .st-emotion-cache-hua6f6 { min-width: calc(50% - 1.5rem) !important; }
 }
+/* Proteger el Data Editor de la compactación extrema */
+    div[data-testid="stDataFrame"] { margin-bottom: 1rem !important; margin-top: 0.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
 

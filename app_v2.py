@@ -107,54 +107,53 @@ col_admin1, col_admin2 = st.columns(2)
 
 with col_admin1:
     with st.popover("🛠️ Modificar BD", use_container_width=True):
-        tab_edit, tab_new, tab_del, tab_order = st.tabs(["✏️ Editar", "➕ Crear", "🗑️ Borrar", "🔄 Ordenar"])
+        tab_edit, tab_new, tab_del, tab_order, tab_import = st.tabs(["✏️ Editar", "➕ Crear", "🗑️ Borrar", "🔄 Ordenar", "📥 Importar"])
 
         with tab_edit:
             edit_name = st.text_input("Nombre:", value=exercise)
             current_db_pat = db["exercises"][exercise]["pattern"]
             
-            # El teclado ahora retorna el patrón directamente a Python
-            kbd_val = render_virtual_keyboard(current_db_pat, key="kbd_edit")
+            with st.expander("🎹 Abrir Teclado Virtual (Constructor)"):
+                render_virtual_keyboard(current_db_pat)
             
-            # Si el teclado aún no envía datos (primer microsegundo), usamos el patrón guardado
-            final_pat = kbd_val if kbd_val is not None else current_db_pat
+            edit_pat = st.text_area("Código del Patrón:", value=current_db_pat, height=120)
             
-            # Botones de Acción directos
             col_p1, col_p2 = st.columns(2)
             with col_p1:
                 if st.button("▶️ Preview", use_container_width=True, key="prev_edit"):
                     try:
-                        prev_uri = generate_preview_midi(final_pat, stgs.get("bpm", 120))
+                        prev_uri = generate_preview_midi(edit_pat, stgs.get("bpm", 120))
                         render_midi_player(prev_uri)
                     except Exception: st.error("Error en patrón")
             with col_p2:
                 if st.button("💾 Guardar", type="primary", use_container_width=True):
-                    if edit_name.strip() and final_pat.strip():
-                        db_v2.update_exercise_core(exercise, edit_name.strip(), final_pat.strip())
+                    if edit_name.strip() and edit_pat.strip():
+                        db_v2.update_exercise_core(exercise, edit_name.strip(), edit_pat.strip())
                         clean_edit_cache()
                         st.rerun()
 
         with tab_new:
             new_name = st.text_input("Nombre (Nuevo):")
-            default_new_pat = "1, 2, 3, 4, | \n5, 0, 1---" 
+            default_new_pat = "1, 2, 3, 4, | \n5, 0, 1---"
             
-            # Teclado Constructor
-            kbd_val_new = render_virtual_keyboard(default_new_pat, key="kbd_new")
-            final_pat_new = kbd_val_new if kbd_val_new is not None else default_new_pat
+            with st.expander("🎹 Abrir Teclado Virtual (Constructor)"):
+                st.caption("Arma tu patrón, escúchalo, cópialo y pégalo abajo.")
+                render_virtual_keyboard(default_new_pat)
+                
+            new_pat = st.text_area("Código del Patrón:", value=default_new_pat, height=120)
             
-            # Botones de Acción directos
             col_n1, col_n2 = st.columns(2)
             with col_n1:
                 if st.button("▶️ Preview", use_container_width=True, key="prev_new"):
                     try:
-                        prev_uri = generate_preview_midi(final_pat_new, 120)
+                        prev_uri = generate_preview_midi(new_pat, 120)
                         render_midi_player(prev_uri)
                     except Exception: st.error("Error en patrón")
             with col_n2:
                 if st.button("➕ Crear", type="primary", use_container_width=True):
-                    if new_name.strip() and final_pat_new.strip() and new_name.strip() not in db["exercises"]:
+                    if new_name.strip() and new_name.strip() not in db["exercises"]:
                         max_order = max([d["order_index"] for d in db["exercises"].values()]) if db["exercises"] else 0
-                        db_v2.create_exercise(new_name.strip(), final_pat_new.strip(), max_order + 1)
+                        db_v2.create_exercise(new_name.strip(), new_pat.strip(), max_order + 1)
                         clean_edit_cache()
                         st.rerun()
 
@@ -179,6 +178,163 @@ with col_admin1:
                     k_next = keys[i+1]
                     db_v2.swap_exercise_order(k, db["exercises"][k]["order_index"], k_next, db["exercises"][k_next]["order_index"])
                     st.rerun()
+
+        with tab_import:
+            st.caption("Pega el JSON directo de Hooktheory")
+            import_name = st.text_input("Nombre (Importado):")
+            import_json = st.text_area("Código JSON:", height=120)
+            
+            if st.button("📥 Convertir y Crear", type="primary", use_container_width=True):
+                if import_name.strip() and import_json.strip():
+                    try:
+                        import json
+                        data = json.loads(import_json.strip())
+                        raw_notes = data.get("notes", [])
+                        
+                        if not raw_notes and "modern" in data:
+                            try: raw_notes = data["modern"]["payload"]["notes"]
+                            except: pass
+                            
+                        keys_data = data.get("keys", [])
+                        if not keys_data and "modern" in data:
+                            try: keys_data = data["modern"]["payload"]["keys"]
+                            except: pass
+                            
+                        scale_type = "major"
+                        if keys_data and isinstance(keys_data, list) and len(keys_data) > 0:
+                            scale_type = keys_data[0].get("scale", "major").lower()
+
+                        scale_intervals = {
+                            "major": [0, 2, 4, 5, 7, 9, 11],
+                            "minor": [0, 2, 3, 5, 7, 8, 10],
+                            "dorian": [0, 2, 3, 5, 7, 9, 10],
+                            "phrygian": [0, 1, 3, 5, 7, 8, 10],
+                            "lydian": [0, 2, 4, 6, 7, 9, 11],
+                            "mixolydian": [0, 2, 4, 5, 7, 9, 10],
+                            "locrian": [0, 1, 3, 5, 6, 8, 10]
+                        }
+                        intervals = scale_intervals.get(scale_type, scale_intervals["major"])
+                        
+                        semitone_to_app = {
+                            0: (1, ""), 1: (2, "b"), 2: (2, ""), 3: (3, "b"), 
+                            4: (3, ""), 5: (4, ""), 6: (4, "#"), 7: (5, ""), 
+                            8: (6, "b"), 9: (6, ""), 10: (7, "b"), 11: (7, "")
+                        }
+                            
+                        if not raw_notes:
+                            st.error("No se encontraron notas musicales en el JSON.")
+                        else:
+                            # 1. ORDENAR NOTAS POR TIEMPO Y MANEJAR SILENCIOS EXPLÍCITOS / HUECOS / ACORDES
+                            raw_notes = sorted(raw_notes, key=lambda x: float(x.get("beat", 1.0)))
+                            parsed_notes = []
+                            current_time = 0.0
+                            
+                            for n in raw_notes:
+                                # Hooktheory "beat" empieza en 1 (el inicio). Restamos 1 para que empiece en tiempo 0.0
+                                start_time = float(n.get("beat", 1.0)) - 1.0
+                                dur = float(n.get("duration", 1.0))
+                                
+                                # Si la nota empieza antes que termine la anterior (Acordes/Polifonía), la ignoramos
+                                if start_time < current_time - 0.001:
+                                    continue
+                                
+                                # Detectar HUECOS de tiempo y crear silencios automáticos
+                                if start_time > current_time + 0.001:
+                                    gap_dur = start_time - current_time
+                                    parsed_notes.append({"is_rest": True, "abs_deg": 0, "alt": "", "dur": gap_dur})
+                                
+                                is_rest = n.get("isRest", False)
+                                if is_rest:
+                                    parsed_notes.append({"is_rest": True, "abs_deg": 0, "alt": "", "dur": dur})
+                                else:
+                                    sd_str = str(n.get("sd", "1"))
+                                    alt_val = 0
+                                    if sd_str.startswith("#"): alt_val = 1; sd_str = sd_str[1:]
+                                    elif sd_str.startswith("b"): alt_val = -1; sd_str = sd_str[1:]
+                                    elif sd_str.endswith("#"): alt_val = 1; sd_str = sd_str[:-1]
+                                    elif sd_str.endswith("b"): alt_val = -1; sd_str = sd_str[:-1]
+                                    
+                                    try: deg_int = int(sd_str)
+                                    except: deg_int = 1
+                                    
+                                    octave_offset = int(n.get("octave", 0))
+                                    extra_octaves = (deg_int - 1) // 7
+                                    base_deg_idx = ((deg_int - 1) % 7) 
+                                    
+                                    semitones = intervals[base_deg_idx] + alt_val
+                                    extra_octaves += semitones // 12
+                                    normalized_semitones = semitones % 12
+                                    
+                                    app_deg_int, app_alt = semitone_to_app[normalized_semitones]
+                                    abs_deg = app_deg_int + ((octave_offset + extra_octaves) * 7)
+                                    parsed_notes.append({"is_rest": False, "abs_deg": abs_deg, "alt": app_alt, "dur": dur})
+                                    
+                                current_time = start_time + dur
+                            
+                            # 2. TRANSPOSICIÓN INTELIGENTE (AL PISO MÁS BAJO)
+                            active_degrees = [n["abs_deg"] for n in parsed_notes if not n["is_rest"]]
+                            if active_degrees:
+                                min_deg = min(active_degrees)
+                                shift = 0
+                                # Empujamos la melodía hacia arriba si su nota más baja es menor a 1 (Negativa)
+                                while min_deg + shift < 1: 
+                                    shift += 7
+                                # Bajamos la melodía si su nota más baja está por encima del 7 (Aprovechar espacio)
+                                while min_deg + shift > 7: 
+                                    shift -= 7
+                            else:
+                                shift = 0
+                                
+                            final_str = ""
+                            beat_sum = 0.0
+                            
+                            for i, n in enumerate(parsed_notes):
+                                if n["is_rest"]: 
+                                    base = "0"
+                                else:
+                                    final_deg = n["abs_deg"] + shift
+                                    # Plegado de emergencia para notas que aún se salgan de 15
+                                    while final_deg > 15: final_deg -= 7
+                                    while final_deg < 1: final_deg += 7 
+                                        
+                                    base = f"{final_deg}{n['alt']}"
+                                
+                                dur = n["dur"]
+                                if dur == 4.0: token = f"{base}---"
+                                elif dur == 3.0: token = f"{base}--"
+                                elif dur == 2.0: token = f"{base}-"
+                                elif dur == 1.0: token = f"{base}"
+                                else: token = f"{base}[x{dur:g}]"
+                                
+                                final_str += token
+                                beat_sum += dur
+                                is_end_of_bar = False
+                                
+                                # Lógica para insertar barras (|) de forma precisa, incluso tras notas muy largas
+                                if beat_sum >= 3.99:
+                                    is_end_of_bar = True
+                                    while beat_sum >= 3.99:
+                                        beat_sum -= 4.0
+                                    if beat_sum < 0.01: beat_sum = 0.0
+                                
+                                if i < len(parsed_notes) - 1:
+                                    final_str += ", "
+                                    if is_end_of_bar:
+                                        final_str += "| \n"
+                                else:
+                                    if is_end_of_bar: final_str += " |"
+                            
+                            if import_name.strip() not in db["exercises"]:
+                                max_order = max([d["order_index"] for d in db["exercises"].values()]) if db["exercises"] else 0
+                                db_v2.create_exercise(import_name.strip(), final_str, max_order + 1)
+                                clean_edit_cache()
+                                st.success("¡Importado con éxito!")
+                                st.rerun()
+                            else:
+                                st.error("El nombre ya existe. Por favor, elige otro.")
+                                
+                    except Exception as e:
+                        st.error(f"Error parseando JSON: {e}")
 
 # ==============================
 # CSS MAESTRO DE COMPACTACIÓN MÓVIL
